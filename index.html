@@ -206,20 +206,14 @@ input[type=range]{width:100%;accent-color:var(--g);cursor:pointer;margin-top:2px
       </div>
     </div>
     <div class="hdr-r2">
-      <div class="lock-row" id="lockRow">
-        <label class="lock-sw"><input type="checkbox" id="lockTog" onchange="doLock(this.checked)"><span class="lock-sl"></span></label>
-        <span class="lock-lbl">⚡ تثبيت لـ ٣ إقلاعات</span>
-        <span id="lockBadge">○○○</span>
-      </div>
-      <button class="ico-btn" onclick="doRefresh()" style="font-size:13px">↻</button>
+      <div style="font-size:9px;letter-spacing:1px;color:#2a6b4a" id="syncAge">جارٍ المزامنة...</div>
+      <button class="ico-btn" onclick="doRefresh()" style="font-size:13px" title="تحديث فوري">↻</button>
     </div>
   </div>
 
-  <div id="trialBanner" class="banner trial-b"></div>
-
   <div id="modeRow">
     <div class="mode-inner">
-      <button class="mbtn mbtn-tg" id="btnTg" style="display:none" onclick="doCmd('go-tg')">🚀 وضع تيليجرام</button>
+      <button class="mbtn mbtn-tg" id="btnTg" style="display:none" onclick="doCmd('go-ap')">↩ العودة للوحة المحلية (AP)</button>
       <button class="mbtn mbtn-bt" id="btnBt" style="display:none" onclick="doCmd('go-bt')">🔵 وضع البلوتوث</button>
     </div>
   </div>
@@ -393,49 +387,31 @@ function onData(d, isFirst){
   by('sTime').textContent  = now2();
   by('sCloud').textContent = CFG.workerUrl.split('.')[0] || '';
 
+  // Sync age indicator
+  const ageSec = d.cloudTs ? Math.round((Date.now()-d.cloudTs)/1000) : 0;
+  const sa = by('syncAge');
+  if(sa) sa.textContent = ageSec>10 ? `آخر تحديث منذ ${ageSec}ث` : '● مزامنة نشطة';
+
   // Project name
   if(d.name && d.converted){
-    by('brandEn').textContent = d.name;
-    by('projName').textContent = '';
-    document.title = d.name;
+    by('brandEn').textContent = d.name; by('projName').textContent = ''; document.title = d.name;
   } else if(d.name){
-    by('brandEn').textContent = 'PROGRAMMER JOE';
-    by('projName').textContent = d.name;
+    by('brandEn').textContent = 'PROGRAMMER JOE'; by('projName').textContent = d.name;
     document.title = 'PROGRAMMER JOE — '+d.name;
   }
 
-  // Mode buttons
-  const hasTg = d.tgEnabled||d.tgConfigured;
-  const hasBt = d.btEnabled||d.btConfigured;
-  by('modeRow').style.display = (hasTg||hasBt)?'block':'none';
-  by('btnTg').style.display   = hasTg?'':'none';
-  by('btnBt').style.display   = hasBt?'':'none';
-
-  // Trial banner
-  const tb=by('trialBanner');
-  if(!d.converted&&d.locked&&(d.trialLeft||0)<=1){
-    tb.classList.add('show');
-    tb.textContent = d.trialLeft===0?'⚠️ انتهت الإقلاعات — التالية تعيد الضبط':'⚠️ آخر إقلاعة — التالية تعيد الضبط';
-  } else tb.classList.remove('show');
-
-  // Lock badge
-  const lockRow=by('lockRow');
-  if(d.converted){ if(lockRow)lockRow.style.display='none'; }
-  else {
-    if(lockRow)lockRow.style.display='flex';
-    const c=d.trialLeft||0; let dots='';
-    for(let i=0;i<3;i++) dots+=(i<c)?'●':'○';
-    const tog=by('lockTog'); if(tog)tog.checked=!!d.locked;
-    const bdg=by('lockBadge'); if(bdg){ bdg.textContent=dots; bdg.className=d.locked?(c<=1?'warn':'active'):''; }
-  }
+  // Mode buttons — ESP32 is already in TG mode, so:
+  // TG button = send "offline" to return to AP local dashboard
+  // BT button = switch to BT mode
+  by('modeRow').style.display = (d.tgEnabled||d.tgConfigured||d.btEnabled||d.btConfigured)?'block':'none';
+  by('btnTg').style.display   = (d.tgEnabled||d.tgConfigured) ? '' : 'none';
+  by('btnBt').style.display   = (d.btEnabled||d.btConfigured) ? '' : 'none';
 
   if(isFirst||!data||!data.comps||(d.comps?.length!==data.comps?.length)) buildGrid(d);
   else updateGrid(d);
   data = d;
 
-  // How stale is the data?
-  const ageSec = d.cloudTs ? Math.round((Date.now()-d.cloudTs)/1000) : 0;
-  setStatus(ageSec>30?'تحديث منذ '+ageSec+'ث 🟡':'متصل • '+now2(), ageSec>30?'warn':'ok');
+  setStatus(ageSec>15?`تأخير ${ageSec}ث 🟡`:'متصل • '+now2(), ageSec>15?'warn':'ok');
   schedulePoll();
 }
 
@@ -444,8 +420,7 @@ function onData(d, isFirst){
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 function schedulePoll(){
   clearTimeout(pollTmr);
-  const hasFast = data?.comps?.some(c=>[6,7,12,13,17,18,40].includes(c.type));
-  const ms = hasFast ? 2500 : 4000;
+  // Poll every 2s — the ESP32 pushes state every 4s so we catch updates quickly
   pollTmr = setTimeout(async ()=>{
     try {
       const d = await fetchState();
@@ -455,7 +430,7 @@ function schedulePoll(){
       setConn('offline'); setStatus('تعذّر الاتصال بالخادم','err');
     }
     schedulePoll();
-  }, ms);
+  }, 2000);
 }
 
 async function doRetry(){ data=null; await init(); }
@@ -480,13 +455,9 @@ function buildCard(c,i){
   const lbl=el('div','card-lbl'); lbl.textContent=(TMAP[t]||'?')+' #'+(c.n||1); card.appendChild(lbl);
   const ps=pinStr(c.pin,c.pin2,t); if(ps){const pb=el('div','card-pin');pb.textContent=ps;card.appendChild(pb);}
 
-  if(t===0){ // LED
+  if(t===0){ // LED — toggle only (cloud dashboard: no PWM slider)
     card.classList.add('click'); card.onclick=()=>{ haptic(); togComp(c,i); };
     const b=el('div','bulb','b'+i); b.style.background=col; card.appendChild(b);
-    const sl=document.createElement('input'); sl.type='range';sl.min=0;sl.max=255;sl.value=255;sl.id='pw'+i;
-    sl.onclick=e=>e.stopPropagation();
-    sl.oninput=function(e){e.stopPropagation();clearTimeout(srvT[i]);srvT[i]=setTimeout(()=>{sendCmd('led'+c.n+' pwm '+this.value).catch(()=>{});},250);};
-    card.appendChild(sl);
     const s=el('div','stxt','s'+i);s.textContent='إطفاء';card.appendChild(s);
   }
   else if(t===2){ // Relay
@@ -604,23 +575,40 @@ async function togComp(c,i){
   else if(t===2)  cmd=`relay${n} ${c.on?'off':'on'}`;
   else if(t===19) cmd=`buzzer${n} ${c.on?'off':'on'}`;
   if(!cmd) return;
-  setStatus('جارٍ التنفيذ...','');
-  // Optimistic update
+
+  // Optimistic UI update immediately
   if(data?.comps?.[i]) data.comps[i].on = !c.on;
-  updateCard(data?.comps?.[i]||c, i);
-  try{ await sendCmd(cmd); setStatus('تم ✓','ok'); haptic('medium'); }
-  catch(e){ setStatus('فشل الأمر','err'); hapticWarn(); }
+  updateCard(data.comps[i], i);
+  haptic('medium');
+  setStatus('جارٍ الإرسال → ESP32 (٤ ثوانٍ)...','');
+
+  try{
+    await sendCmd(cmd);
+    setStatus('تم الإرسال ✓ — ESP32 سينفذ خلال ثوانٍ','ok');
+  } catch(e){
+    // Revert optimistic update on failure
+    if(data?.comps?.[i]) data.comps[i].on = !data.comps[i].on;
+    updateCard(data.comps[i], i);
+    setStatus('فشل الاتصال بالخادم','err');
+    hapticWarn();
+  }
 }
 
-async function doLock(v){
-  hapticSel();
-  try{ await sendCmd(v?'lock on':'lock off'); setStatus(v?'تم التثبيت ✓':'تم الإلغاء ✓','ok'); }
-  catch(e){ setStatus('فشل التثبيت','err'); if(data)updateCard(data,0); }
-}
+async function doLock(v){ /* removed — no lock in cloud dashboard */ }
 
 async function doCmd(type){
-  if(type==='go-tg'){ if(!confirm('التبديل لوضع تيليجرام؟')) return; await sendCmd('offline'); }
-  if(type==='go-bt'){ if(!confirm('التبديل لوضع البلوتوث؟')) return; await sendCmd('bt on'); }
+  if(type==='go-ap'){
+    if(!confirm('سيتوقف ESP32 عن وضع تيليجرام ويعود للوحة المحلية. هاتفك يجب أن يتصل بشبكة الجهاز بعدها.')) return;
+    haptic('medium');
+    try{ await sendCmd('offline'); setStatus('تم الإرسال — ESP32 سيعود للوحة المحلية','ok'); }
+    catch(e){ setStatus('فشل الإرسال','err'); }
+  }
+  if(type==='go-bt'){
+    if(!confirm('التبديل لوضع البلوتوث؟')) return;
+    haptic('medium');
+    try{ await sendCmd('go bt'); setStatus('تم الإرسال','ok'); }
+    catch(e){ setStatus('فشل الإرسال','err'); }
+  }
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
