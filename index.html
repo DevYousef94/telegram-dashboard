@@ -1,0 +1,632 @@
+<!DOCTYPE html>
+<html dir="rtl" lang="ar">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>ESP32 IoT Hub</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<style>
+:root{--bg:#050505;--g:#00ff41;--c:#00ffcc;--r:#ff4d4d;--w:#ffaa00;--bdr:#1a1a1a;--card:#080808}
+*{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{height:100%;overscroll-behavior:none}
+body{background:var(--bg);color:var(--g);font-family:'Courier New',monospace;overflow-x:hidden;overflow-y:auto}
+body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:9999;background:repeating-linear-gradient(to bottom,transparent 0,transparent 2px,rgba(0,0,0,.07) 2px,rgba(0,0,0,.07) 4px)}
+
+@keyframes neon{0%{opacity:.38;text-shadow:0 0 4px currentColor}50%{opacity:1;text-shadow:0 0 8px currentColor,0 0 22px currentColor}100%{opacity:.6;text-shadow:0 0 10px currentColor}}
+@keyframes spin{to{transform:rotate(360deg)}}
+@keyframes fadeIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
+@keyframes slideUp{from{transform:translateY(100%)}to{transform:translateY(0)}}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:.2}}
+@keyframes scanH{0%{top:-2px}100%{top:100%}}
+
+/* ── LOADING ── */
+#loadScreen{position:fixed;inset:0;background:var(--bg);display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:500;gap:22px}
+#loadScreen::after{content:"";position:absolute;left:0;right:0;height:2px;background:linear-gradient(90deg,transparent,var(--g),var(--c),transparent);animation:scanH 2.5s linear infinite;opacity:.4}
+.load-en{font-size:13px;letter-spacing:5px;color:var(--g);animation:neon 2.8s ease-in-out infinite alternate}
+.load-ar{font-size:11px;letter-spacing:3px;color:var(--c);animation:neon 3.2s .4s ease-in-out infinite alternate}
+.load-bab{font-size:9px;letter-spacing:3px;color:#2a6b4a;margin-top:2px}
+.spinner{width:38px;height:38px;border:2px solid #141414;border-top-color:var(--g);border-radius:50%;animation:spin 1s linear infinite}
+.load-txt{font-size:10px;letter-spacing:2px;color:#444}
+
+/* ── HEADER ── */
+.hdr{position:sticky;top:0;z-index:100;background:rgba(5,5,5,.97);border-bottom:1px solid var(--bdr);backdrop-filter:blur(10px)}
+.hdr-r1{display:flex;align-items:center;justify-content:space-between;padding:9px 14px 5px;gap:8px}
+.hdr-r2{display:flex;align-items:center;justify-content:space-between;padding:4px 14px 8px;border-top:1px solid #0e0e0e;gap:8px}
+.brand{display:flex;flex-direction:column;gap:1px}
+.brand-en{font-size:10px;letter-spacing:3px;color:var(--g);animation:neon 2.8s ease-in-out infinite alternate}
+.brand-ar{font-size:9px;letter-spacing:2px;color:var(--c);animation:neon 3.2s .4s ease-in-out infinite alternate}
+#projName{font-size:12px;letter-spacing:1px;color:#999;max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.hdr-right{display:flex;align-items:center;gap:8px}
+.conn-badge{display:flex;align-items:center;gap:4px;font-size:9px;letter-spacing:.5px;padding:3px 8px;border-radius:10px;border:1px solid;transition:all .3s}
+.conn-badge.online{border-color:var(--g);color:var(--g);background:rgba(0,255,65,.07)}
+.conn-badge.offline{border-color:var(--r);color:var(--r);background:rgba(255,77,77,.07);animation:blink 1.5s infinite}
+.conn-badge.checking{border-color:var(--w);color:var(--w);background:rgba(255,170,0,.07);animation:blink 1s infinite}
+.conn-dot{width:5px;height:5px;border-radius:50%;background:currentColor}
+.ico-btn{width:30px;height:30px;border-radius:50%;background:transparent;border:1px solid #222;color:#555;cursor:pointer;font-size:15px;display:flex;align-items:center;justify-content:center;transition:all .2s}
+.ico-btn:active{border-color:var(--c);color:var(--c)}
+
+/* lock */
+.lock-row{display:flex;align-items:center;gap:8px}
+.lock-lbl{font-size:10px;color:#444;letter-spacing:.5px;white-space:nowrap}
+#lockBadge{font-size:9px;padding:1px 5px;background:#111;border:1px solid #1a1a1a;border-radius:3px;color:#333;transition:all .3s}
+#lockBadge.active{background:rgba(0,255,65,.07);border-color:rgba(0,255,65,.25);color:var(--g)}
+#lockBadge.warn{background:rgba(255,107,53,.07);border-color:rgba(255,107,53,.3);color:#ff6b35}
+.lock-sw{position:relative;width:38px;height:20px;flex-shrink:0}
+.lock-sw input{opacity:0;width:0;height:0;position:absolute}
+.lock-sl{position:absolute;inset:0;background:#1a1a1a;border-radius:20px;cursor:pointer;transition:.2s;border:1px solid #252525}
+.lock-sl::before{content:"";position:absolute;width:14px;height:14px;left:2px;top:2px;background:#333;border-radius:50%;transition:.2s}
+.lock-sw input:checked+.lock-sl{background:rgba(0,255,65,.15);border-color:rgba(0,255,65,.4)}
+.lock-sw input:checked+.lock-sl::before{transform:translateX(18px);background:var(--g)}
+
+/* ── BANNERS ── */
+.banner{display:none;margin:10px 14px 0;padding:9px 12px;border-radius:7px;font-size:11px;line-height:1.7;text-align:center}
+.banner.show{display:block;animation:fadeIn .3s}
+.banner.trial-b{background:rgba(255,107,53,.05);border:1px solid rgba(255,107,53,.25);color:#ff6b35}
+.banner.warn-b{background:rgba(255,170,0,.05);border:1px solid rgba(255,170,0,.25);color:var(--w)}
+
+/* ── MODE BUTTONS ── */
+#modeRow{display:none;padding:10px 14px 0}
+.mode-inner{display:flex;gap:8px}
+.mbtn{flex:1;padding:11px;border-radius:7px;font:12px 'Courier New',monospace;cursor:pointer;border:1px solid;background:transparent;letter-spacing:.5px;transition:opacity .2s}
+.mbtn:active{opacity:.7}
+.mbtn-tg{border-color:#0088cc;color:#4bbce8}
+.mbtn-bt{border-color:#2563eb;color:#6aa6ff}
+
+/* ── OFFLINE SCREEN ── */
+#offScreen{display:none;flex-direction:column;align-items:center;justify-content:center;text-align:center;min-height:70vh;padding:28px 20px;gap:14px}
+#offScreen.show{display:flex;animation:fadeIn .4s}
+.off-ico{font-size:52px}
+.off-t{font-size:16px;color:var(--r);letter-spacing:1px}
+.off-sub{font-size:11px;color:#444;line-height:2;max-width:280px}
+.off-meta{font-size:10px;color:#2a6b4a;letter-spacing:.5px;direction:ltr;font-family:'Courier New',monospace}
+.retry-btn{padding:12px 28px;border:1px solid var(--g);background:transparent;color:var(--g);border-radius:7px;font:13px 'Courier New',monospace;cursor:pointer;letter-spacing:1px;transition:background .2s}
+.retry-btn:active{background:rgba(0,255,65,.1)}
+.retry-btn.sec{border-color:var(--c);color:var(--c)}
+
+/* ── SETTINGS ── */
+#settingsPanel{display:none;position:fixed;inset:0;z-index:300;background:rgba(0,0,0,.82);backdrop-filter:blur(5px);align-items:flex-end;justify-content:center}
+#settingsPanel.show{display:flex;animation:fadeIn .2s}
+.set-box{background:#0c0c0c;border:1px solid #222;border-radius:16px 16px 0 0;padding:22px;width:100%;max-width:480px;animation:slideUp .3s ease-out}
+.set-title{font-size:14px;letter-spacing:2px;color:var(--c);margin-bottom:16px}
+.set-field{margin-bottom:12px}
+.set-lbl{font-size:10px;letter-spacing:1px;color:#444;display:block;margin-bottom:5px}
+.set-inp{width:100%;padding:10px 12px;background:#060606;border:1px solid #222;color:var(--g);border-radius:6px;font:13px 'Courier New',monospace;outline:none;direction:ltr;transition:border-color .2s}
+.set-inp:focus{border-color:var(--g)}
+.set-hint{font-size:9px;color:#333;margin-top:3px;direction:ltr}
+.set-save{width:100%;padding:13px;border:2px solid var(--g);background:transparent;color:var(--g);border-radius:7px;font:13px 'Courier New',monospace;cursor:pointer;letter-spacing:1px;margin-bottom:8px;transition:background .2s}
+.set-save:active{background:rgba(0,255,65,.1)}
+.set-close{width:100%;padding:10px;background:transparent;border:1px solid #1e1e1e;color:#444;border-radius:7px;font:11px 'Courier New',monospace;cursor:pointer}
+
+/* ── GRID ── */
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(145px,1fr));gap:10px;padding:12px 14px 64px}
+@media(max-width:320px){.grid{grid-template-columns:1fr 1fr}}
+@media(min-width:520px){.grid{grid-template-columns:repeat(auto-fill,minmax(160px,1fr))}}
+
+/* ── CARD ── */
+.card{background:var(--card);border:1px solid var(--bdr);border-radius:10px;padding:12px 10px;display:flex;flex-direction:column;align-items:center;gap:6px;min-height:115px;animation:fadeIn .3s ease-out;transition:border-color .25s,box-shadow .25s}
+.card.active{border-color:rgba(0,255,65,.2);box-shadow:0 0 14px rgba(0,255,65,.06)}
+.card.click{cursor:pointer}
+.card.click:active{transform:scale(.97);transition:transform .1s}
+.card-lbl{font-size:9px;letter-spacing:1px;color:#444;text-align:center}
+.card-pin{font-size:8px;color:var(--c);background:rgba(0,255,204,.07);border:1px solid rgba(0,255,204,.15);padding:2px 6px;border-radius:3px}
+
+.bulb{width:50px;height:50px;border-radius:50%;border:2px solid #1a1a1a;opacity:.12;transition:opacity .2s,box-shadow .2s}
+.bulb.on{opacity:1}
+.relay-body{width:58px;height:26px;border-radius:4px;border:2px solid #1e1e1e;display:flex;align-items:center;justify-content:center;font-size:9px;color:#333;transition:all .2s}
+.relay-body.on{border-color:var(--g);color:var(--g);background:rgba(0,255,65,.06)}
+input[type=range]{width:100%;accent-color:var(--g);cursor:pointer;margin-top:2px}
+.bigv{font-size:22px;font-weight:700;color:var(--c)}
+.bigv.danger{color:var(--r)}
+.dht-row{display:flex;gap:12px;justify-content:center}
+.dht-box{display:flex;flex-direction:column;align-items:center}
+.dht-v{font-size:20px;font-weight:700;color:var(--g)}
+.dht-u{font-size:9px;color:#444}
+.ping{width:48px;height:48px;border-radius:50%;border:2px solid #1a1a1a;display:flex;align-items:center;justify-content:center;transition:all .25s}
+.ping.on{border-color:var(--r);box-shadow:0 0 14px rgba(255,77,77,.35)}
+.ping.on .pdot{background:var(--r)}
+.pdot{width:10px;height:10px;border-radius:50%;background:#242424;transition:background .2s}
+.bar{width:100%;height:4px;border-radius:3px;background:#111;overflow:hidden}
+.fill{height:100%;border-radius:3px;width:0%;transition:width .4s}
+.stxt{font-size:10px;color:#444;text-align:center}
+.rgb-prev{width:48px;height:48px;border-radius:8px;border:2px solid #1e1e1e;background:#000;transition:background .2s}
+.rgb-sls{display:flex;flex-direction:column;gap:4px;width:100%}
+.rgb-sls .r-sl{accent-color:#ff4d4d}
+.rgb-sls .g-sl{accent-color:#00ff41}
+.rgb-sls .b-sl{accent-color:#4da3ff}
+.rtc-t{font-size:20px;font-weight:700;color:var(--g);font-variant-numeric:tabular-nums;letter-spacing:2px}
+.rtc-d{font-size:9px;color:#444;letter-spacing:1px}
+.sync-btn{padding:5px 10px;background:transparent;border:1px solid #1e1e1e;color:#444;border-radius:4px;font:10px 'Courier New',monospace;cursor:pointer;transition:all .2s;letter-spacing:.5px}
+.sync-btn:active{border-color:var(--c);color:var(--c)}
+
+/* ── STATUS BAR ── */
+#statusBar{position:fixed;bottom:0;left:0;right:0;background:rgba(5,5,5,.97);border-top:1px solid #0f0f0f;padding:6px 14px;display:flex;align-items:center;justify-content:space-between;font-size:9px;z-index:100;backdrop-filter:blur(8px);gap:8px}
+#statusBar.hidden{display:none}
+#sTxt{color:var(--g);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;letter-spacing:.5px}
+#sTxt.err{color:var(--r)}#sTxt.warn{color:var(--w)}#sTxt.ok{color:var(--c)}
+#sTime{color:#333;flex-shrink:0;font-variant-numeric:tabular-nums}
+#sCloud{color:#2a6b4a;flex-shrink:0;font-size:8px;direction:ltr;max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+</style>
+</head>
+<body>
+
+<!-- ══ LOADING ══════════════════════════════════════════════════ -->
+<div id="loadScreen">
+  <div>
+    <div class="load-en">PROGRAMMER JOE</div>
+    <div class="load-ar">المبرمج يوسف عبد الحليم</div>
+    <div class="load-bab">الكترونيات بابل</div>
+  </div>
+  <div class="spinner"></div>
+  <div class="load-txt" id="loadTxt">جارٍ الاتصال...</div>
+</div>
+
+<!-- ══ SETTINGS ═════════════════════════════════════════════════ -->
+<div id="settingsPanel">
+  <div class="set-box">
+    <div class="set-title">⚙️ إعدادات الاتصال</div>
+    <div class="set-field">
+      <label class="set-lbl">Worker URL (بدون https://)</label>
+      <input id="cfUrl" class="set-inp" placeholder="joseph-relay.YOUR-SUBDOMAIN.workers.dev">
+      <div class="set-hint">من Cloudflare → Workers → اسم المشروع → Visit URL (احذف https://)</div>
+    </div>
+    <div class="set-field">
+      <label class="set-lbl">App Token</label>
+      <input id="cfToken" class="set-inp" placeholder="APP_TOKEN من متغيرات Cloudflare">
+      <div class="set-hint">نفس قيمة APP_TOKEN التي ضبطتها في Cloudflare Environment Variables</div>
+    </div>
+    <button class="set-save" onclick="saveSettings()">💾 حفظ والاتصال</button>
+    <button class="set-close" onclick="closeSettings()">إلغاء</button>
+  </div>
+</div>
+
+<!-- ══ OFFLINE / ERROR ══════════════════════════════════════════ -->
+<div id="offScreen">
+  <div class="off-ico">📡</div>
+  <div class="off-t" id="offTitle">الجهاز غير متصل</div>
+  <div class="off-sub" id="offSub">الجهاز ليس في وضع تيليجرام، أو لم يتصل بالإنترنت بعد</div>
+  <div class="off-meta" id="offMeta"></div>
+  <button class="retry-btn" onclick="doRetry()">🔄 إعادة المحاولة</button>
+  <button class="retry-btn sec" onclick="openSettings()">⚙️ الإعدادات</button>
+</div>
+
+<!-- ══ MAIN APP ══════════════════════════════════════════════════ -->
+<div id="app" style="display:none">
+  <div class="hdr">
+    <div class="hdr-r1">
+      <div class="brand">
+        <div class="brand-en" id="brandEn">PROGRAMMER JOE</div>
+        <div class="brand-ar">المبرمج يوسف</div>
+      </div>
+      <div id="projName"></div>
+      <div class="hdr-right">
+        <div class="conn-badge checking" id="connBadge">
+          <div class="conn-dot"></div><span id="connTxt">جارٍ</span>
+        </div>
+        <button class="ico-btn" onclick="openSettings()">⚙</button>
+      </div>
+    </div>
+    <div class="hdr-r2">
+      <div class="lock-row" id="lockRow">
+        <label class="lock-sw"><input type="checkbox" id="lockTog" onchange="doLock(this.checked)"><span class="lock-sl"></span></label>
+        <span class="lock-lbl">⚡ تثبيت لـ ٣ إقلاعات</span>
+        <span id="lockBadge">○○○</span>
+      </div>
+      <button class="ico-btn" onclick="doRefresh()" style="font-size:13px">↻</button>
+    </div>
+  </div>
+
+  <div id="trialBanner" class="banner trial-b"></div>
+
+  <div id="modeRow">
+    <div class="mode-inner">
+      <button class="mbtn mbtn-tg" id="btnTg" style="display:none" onclick="doCmd('go-tg')">🚀 وضع تيليجرام</button>
+      <button class="mbtn mbtn-bt" id="btnBt" style="display:none" onclick="doCmd('go-bt')">🔵 وضع البلوتوث</button>
+    </div>
+  </div>
+
+  <div class="grid" id="grid"></div>
+</div>
+
+<!-- ══ STATUS BAR ════════════════════════════════════════════════ -->
+<div id="statusBar" class="hidden">
+  <span id="sTxt">جاهز</span>
+  <span id="sTime">--:--:--</span>
+  <span id="sCloud"></span>
+</div>
+
+<script>
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+//  TELEGRAM MINI APP
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+const TG = window.Telegram?.WebApp;
+if(TG){ TG.ready(); TG.expand(); }
+function haptic(t){ try{ TG?.HapticFeedback?.impactOccurred(t||'light'); }catch(e){} }
+function hapticSel(){ try{ TG?.HapticFeedback?.selectionChanged(); }catch(e){} }
+function hapticWarn(){ try{ TG?.HapticFeedback?.notificationOccurred('warning'); }catch(e){} }
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+//  CONFIG
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+const CFG = {
+  workerUrl: localStorage.getItem('cf_url')   || '',
+  appToken:  localStorage.getItem('cf_token') || '',
+};
+function workerEndpoint(path){
+  const base = CFG.workerUrl.startsWith('http') ? CFG.workerUrl : 'https://'+CFG.workerUrl;
+  return `${base.replace(/\/$/,'')}${path}?token=${encodeURIComponent(CFG.appToken)}`;
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+//  STATE
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+let data = null;
+let pollTmr = null;
+let srvT = {};
+
+const CX = ['#ff4d4d','#00ff41','#4da3ff','#ffffff','#ffaa00'];
+const TMAP = {
+  0:'مصباح',1:'زر',2:'ريليه',3:'سيرفو 180°',4:'DHT11',5:'DHT22',
+  6:'PIR',7:'مسافة',8:'MQ135',9:'MQ2',10:'LDR',11:'تربة',
+  12:'صوت',13:'IR',14:'جهد',17:'لهب',18:'مغناطيسي',19:'طنان',
+  20:'سيرفو 360°',34:'RGB LED',35:'7-سيجمنت',36:'مايك',38:'DS18B20',
+  39:'SHT31',40:'مسافة ليزر',41:'ساعة DS3231',
+};
+for(let x=21;x<=31;x++) TMAP[x]='MQ'+x;
+const PNAME={0:'P0',2:'P2',4:'P4',5:'P5',13:'P13',14:'P14',15:'P15',16:'P16',17:'P17',18:'P18',19:'P19',21:'P21',22:'P22',23:'P23',25:'P25',26:'P26',27:'P27',32:'P32',33:'P33',34:'P34'};
+function pinStr(p,p2,t){ if([15,16,33,39,40,41].includes(t))return'I2C'; if([36,37].includes(t))return'I2S'; if(p===undefined||p===255)return''; if(t===7&&p2!==undefined&&p2!==255)return'T:'+(PNAME[p]||p)+' E:'+(PNAME[p2]||p2); return PNAME[p]||('G'+p); }
+
+function by(id){ return document.getElementById(id); }
+function el(tag,cls,id){ const e=document.createElement(tag); if(cls)e.className=cls; if(id)e.id=id; return e; }
+function now2(){ return new Date().toLocaleTimeString('ar',{hour12:false}); }
+function setStatus(m,t){ const e=by('sTxt');if(!e)return;e.textContent=m;e.className=t||''; }
+function setLoad(t){ const e=by('loadTxt');if(e)e.textContent=t; }
+function setConn(s){ const b=by('connBadge');b.className='conn-badge '+s;by('connTxt').textContent={'online':'متصل','offline':'مقطوع','checking':'جارٍ'}[s]||s; }
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+//  SETTINGS
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+function openSettings(){
+  by('cfUrl').value   = CFG.workerUrl;
+  by('cfToken').value = CFG.appToken;
+  by('settingsPanel').classList.add('show');
+}
+function closeSettings(){ by('settingsPanel').classList.remove('show'); }
+function saveSettings(){
+  CFG.workerUrl = by('cfUrl').value.trim();
+  CFG.appToken  = by('cfToken').value.trim();
+  localStorage.setItem('cf_url',   CFG.workerUrl);
+  localStorage.setItem('cf_token', CFG.appToken);
+  closeSettings();
+  data = null;
+  init();
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+//  FETCH STATE FROM WORKER
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+async function fetchState(){
+  if(!CFG.workerUrl||!CFG.appToken) throw new Error('not_configured');
+  const r = await fetch(workerEndpoint('/state'),{ signal: AbortSignal.timeout(6000) });
+  if(!r.ok) throw new Error('HTTP '+r.status);
+  return r.json();
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+//  SEND COMMAND TO WORKER  →  ESP32 picks it up on next /sync
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+async function sendCmd(cmdText){
+  if(!CFG.workerUrl||!CFG.appToken) return;
+  // Body format: {"cmd":"led1 on"}  — ESP32's processTgCmd handles this string directly
+  await fetch(workerEndpoint('/cmd'),{
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({cmd: cmdText}),
+    signal: AbortSignal.timeout(5000),
+  });
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+//  INIT
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+async function init(){
+  clearTimeout(pollTmr);
+  by('loadScreen').style.display = 'flex';
+  by('app').style.display = 'none';
+  by('offScreen').classList.remove('show');
+  by('statusBar').classList.add('hidden');
+  setConn('checking');
+  setLoad('جارٍ الاتصال بالخادم...');
+
+  if(!CFG.workerUrl||!CFG.appToken){
+    setLoad('ابدأ بإدخال بيانات Cloudflare');
+    by('loadScreen').style.display = 'none';
+    by('offScreen').classList.add('show');
+    by('statusBar').classList.remove('hidden');
+    by('offTitle').textContent = '⚙️ إعداد أولي مطلوب';
+    by('offSub').textContent   = 'أدخل Worker URL و App Token من Cloudflare';
+    by('offMeta').textContent  = '';
+    openSettings();
+    return;
+  }
+
+  try {
+    setLoad('جارٍ جلب حالة الجهاز...');
+    const d = await fetchState();
+
+    if(!d.online){
+      showOffline('الجهاز غير متصل', 'تأكد أن ESP32 في وضع تيليجرام ومتصل بالإنترنت، وأن cloudWorkerUrl و cloudDeviceToken مُضبطان في الفيرموير');
+      return;
+    }
+
+    onData(d, true);
+  } catch(e){
+    const msg = e.message === 'not_configured'
+      ? 'لم يتم إعداد Worker URL أو App Token بعد'
+      : 'تعذّر الوصول لخادم Cloudflare — تحقق من Worker URL';
+    showOffline('خطأ في الاتصال', msg);
+    hapticWarn();
+  }
+}
+
+function showOffline(title, sub){
+  by('loadScreen').style.display = 'none';
+  by('app').style.display = 'none';
+  by('offScreen').classList.add('show');
+  by('statusBar').classList.remove('hidden');
+  by('offTitle').textContent = title;
+  by('offSub').textContent   = sub;
+  by('offMeta').textContent  = CFG.workerUrl ? '→ '+CFG.workerUrl : '';
+  setConn('offline');
+  setStatus(title, 'err');
+  hapticWarn();
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+//  ON DATA RECEIVED
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+function onData(d, isFirst){
+  by('loadScreen').style.display = 'none';
+  by('offScreen').classList.remove('show');
+  by('app').style.display = 'block';
+  by('statusBar').classList.remove('hidden');
+  setConn('online');
+  by('sTime').textContent  = now2();
+  by('sCloud').textContent = CFG.workerUrl.split('.')[0] || '';
+
+  // Project name
+  if(d.name && d.converted){
+    by('brandEn').textContent = d.name;
+    by('projName').textContent = '';
+    document.title = d.name;
+  } else if(d.name){
+    by('brandEn').textContent = 'PROGRAMMER JOE';
+    by('projName').textContent = d.name;
+    document.title = 'PROGRAMMER JOE — '+d.name;
+  }
+
+  // Mode buttons
+  const hasTg = d.tgEnabled||d.tgConfigured;
+  const hasBt = d.btEnabled||d.btConfigured;
+  by('modeRow').style.display = (hasTg||hasBt)?'block':'none';
+  by('btnTg').style.display   = hasTg?'':'none';
+  by('btnBt').style.display   = hasBt?'':'none';
+
+  // Trial banner
+  const tb=by('trialBanner');
+  if(!d.converted&&d.locked&&(d.trialLeft||0)<=1){
+    tb.classList.add('show');
+    tb.textContent = d.trialLeft===0?'⚠️ انتهت الإقلاعات — التالية تعيد الضبط':'⚠️ آخر إقلاعة — التالية تعيد الضبط';
+  } else tb.classList.remove('show');
+
+  // Lock badge
+  const lockRow=by('lockRow');
+  if(d.converted){ if(lockRow)lockRow.style.display='none'; }
+  else {
+    if(lockRow)lockRow.style.display='flex';
+    const c=d.trialLeft||0; let dots='';
+    for(let i=0;i<3;i++) dots+=(i<c)?'●':'○';
+    const tog=by('lockTog'); if(tog)tog.checked=!!d.locked;
+    const bdg=by('lockBadge'); if(bdg){ bdg.textContent=dots; bdg.className=d.locked?(c<=1?'warn':'active'):''; }
+  }
+
+  if(isFirst||!data||!data.comps||(d.comps?.length!==data.comps?.length)) buildGrid(d);
+  else updateGrid(d);
+  data = d;
+
+  // How stale is the data?
+  const ageSec = d.cloudTs ? Math.round((Date.now()-d.cloudTs)/1000) : 0;
+  setStatus(ageSec>30?'تحديث منذ '+ageSec+'ث 🟡':'متصل • '+now2(), ageSec>30?'warn':'ok');
+  schedulePoll();
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+//  POLLING  (every 4s — same cadence as ESP32 cloud sync)
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+function schedulePoll(){
+  clearTimeout(pollTmr);
+  const hasFast = data?.comps?.some(c=>[6,7,12,13,17,18,40].includes(c.type));
+  const ms = hasFast ? 2500 : 4000;
+  pollTmr = setTimeout(async ()=>{
+    try {
+      const d = await fetchState();
+      if(!d.online){ setConn('offline'); setStatus('الجهاز غير متصل','err'); }
+      else onData(d, false);
+    } catch(e){
+      setConn('offline'); setStatus('تعذّر الاتصال بالخادم','err');
+    }
+    schedulePoll();
+  }, ms);
+}
+
+async function doRetry(){ data=null; await init(); }
+async function doRefresh(){
+  hapticSel();
+  try{ const d=await fetchState(); onData(d,false); setStatus('تم التحديث ✓','ok'); }
+  catch(e){ setStatus('فشل التحديث','err'); }
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+//  BUILD GRID
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+function buildGrid(d){
+  const grid=by('grid'); grid.innerHTML='';
+  if(!d.comps?.length){ grid.innerHTML='<div style="grid-column:1/-1;text-align:center;padding:40px;font-size:11px;color:#333;border:1px dashed #1a1a1a;border-radius:8px">لا توجد مكوّنات</div>'; return; }
+  d.comps.forEach((c,i)=>{ if(![15,16,32].includes(c.type)){ const card=buildCard(c,i); if(card)grid.appendChild(card); } });
+}
+
+function buildCard(c,i){
+  const t=c.type, col=CX[c.col||0];
+  const card=el('div','card','card'+i);
+  const lbl=el('div','card-lbl'); lbl.textContent=(TMAP[t]||'?')+' #'+(c.n||1); card.appendChild(lbl);
+  const ps=pinStr(c.pin,c.pin2,t); if(ps){const pb=el('div','card-pin');pb.textContent=ps;card.appendChild(pb);}
+
+  if(t===0){ // LED
+    card.classList.add('click'); card.onclick=()=>{ haptic(); togComp(c,i); };
+    const b=el('div','bulb','b'+i); b.style.background=col; card.appendChild(b);
+    const sl=document.createElement('input'); sl.type='range';sl.min=0;sl.max=255;sl.value=255;sl.id='pw'+i;
+    sl.onclick=e=>e.stopPropagation();
+    sl.oninput=function(e){e.stopPropagation();clearTimeout(srvT[i]);srvT[i]=setTimeout(()=>{sendCmd('led'+c.n+' pwm '+this.value).catch(()=>{});},250);};
+    card.appendChild(sl);
+    const s=el('div','stxt','s'+i);s.textContent='إطفاء';card.appendChild(s);
+  }
+  else if(t===2){ // Relay
+    card.classList.add('click'); card.onclick=()=>{ haptic(); togComp(c,i); };
+    const rb=el('div','relay-body','b'+i);rb.textContent='ريليه';card.appendChild(rb);
+    const s=el('div','stxt','s'+i);s.textContent='غير نشط';card.appendChild(s);
+  }
+  else if(t===19){ // Buzzer
+    card.classList.add('click'); card.onclick=()=>{ haptic(); togComp(c,i); };
+    const rb=el('div','relay-body','b'+i);rb.textContent='🔔';card.appendChild(rb);
+    const s=el('div','stxt','s'+i);s.textContent='صامت';card.appendChild(s);
+  }
+  else if(t===3||t===20){ // Servo
+    const sv=el('div','bigv','sv'+i);sv.innerHTML='90°';card.appendChild(sv);
+    const sl=document.createElement('input');sl.type='range';sl.min=0;sl.max=180;sl.value=90;sl.id='sl'+i;
+    sl.oninput=function(){by('sv'+i).innerHTML=this.value+'°';clearTimeout(srvT[i]);srvT[i]=setTimeout(()=>{sendCmd('servo'+c.n+' '+this.value).catch(()=>{});},250);};
+    card.appendChild(sl);
+  }
+  else if(t===4||t===5||t===39){ // DHT/SHT31
+    const row=el('div','dht-row');
+    if((c.opts||3)&1){const b1=el('div','dht-box');const u1=el('div','dht-u','tu'+i);u1.innerHTML='°C';b1.appendChild(u1);const tv=el('div','dht-v','tv'+i);tv.textContent='--';b1.appendChild(tv);row.appendChild(b1);}
+    if((c.opts||3)&2){const b2=el('div','dht-box');const u2=el('div','dht-u');u2.textContent='%';b2.appendChild(u2);const hv=el('div','dht-v','hv'+i);hv.textContent='--';b2.appendChild(hv);row.appendChild(b2);}
+    card.appendChild(row);
+    const w=el('div','stxt','dw'+i);w.style.display='none';w.textContent='⚠️ لا حساس';card.appendChild(w);
+  }
+  else if(t===38){ // DS18B20
+    const u=el('div','dht-u');u.innerHTML='°C';card.appendChild(u);
+    const tv=el('div','dht-v','tv'+i);tv.textContent='--';card.appendChild(tv);
+  }
+  else if([6,12,13,17,18].includes(t)){ // Digital
+    const ico={6:'🚶',12:'🔊',13:'📺',17:'🔥',18:'🧲'}[t];
+    const r2=el('div','ping','r'+i);r2.appendChild(el('div','pdot'));card.appendChild(r2);
+    const em=el('div');em.style.cssText='font-size:20px;line-height:1';em.textContent=ico;card.appendChild(em);
+    const s=el('div','stxt','s'+i);s.textContent={6:'لا حركة',12:'هادئ',13:'لا عائق',17:'آمن',18:'مفتوح'}[t];card.appendChild(s);
+  }
+  else if(t===7||t===40){ // Distance
+    const dv=el('div','bigv','dv'+i);dv.textContent='--';card.appendChild(dv);
+    const cu=el('div','dht-u','cu'+i);cu.textContent='سم';card.appendChild(cu);
+    const bar=el('div','bar');const fl=el('div','fill','df'+i);fl.style.background=CX[2];bar.appendChild(fl);card.appendChild(bar);
+  }
+  else if(t===41){ // RTC
+    const ck=el('div','rtc-t','rc'+i);ck.textContent='--:--:--';card.appendChild(ck);
+    const dt=el('div','rtc-d','rd'+i);card.appendChild(dt);
+    const sb=el('button','sync-btn');sb.textContent='⏱ مزامنة';
+    sb.onclick=async()=>{ sb.disabled=true; await sendCmd('rtcsync').catch(()=>{}); setTimeout(()=>sb.disabled=false,3000); };
+    card.appendChild(sb);
+  }
+  else if((t>=8&&t<=14)||(t>=21&&t<=31)){ // Analog
+    const dig=(c.pin!==34);
+    if(dig){const r3=el('div','ping','r'+i);r3.appendChild(el('div','pdot'));card.appendChild(r3);const s=el('div','stxt','s'+i);s.textContent='طبيعي';card.appendChild(s);}
+    else{const av=el('div','bigv','av'+i);av.textContent='0';card.appendChild(av);const bar=el('div','bar');const fl=el('div','fill','af'+i);bar.appendChild(fl);card.appendChild(bar);}
+  }
+  else if(t===34){ // RGB
+    const sw=el('div','rgb-prev','sw'+i);card.appendChild(sw);
+    const sls=el('div','rgb-sls');
+    ['R','G','B'].forEach((ch,k)=>{
+      const sl=document.createElement('input');sl.type='range';sl.min=0;sl.max=255;sl.value=0;
+      sl.id='rgb'+ch+i;sl.className=['r-sl','g-sl','b-sl'][k];
+      sl.oninput=()=>{
+        const r=by('rgbR'+i).value,g=by('rgbG'+i).value,b=by('rgbB'+i).value;
+        by('sw'+i).style.background=`rgb(${r},${g},${b})`;
+        clearTimeout(srvT[i]);
+        srvT[i]=setTimeout(()=>sendCmd(`rgb${c.n} ${r} ${g} ${b}`).catch(()=>{}),200);
+      };
+      sls.appendChild(sl);
+    });
+    card.appendChild(sls);
+  }
+  else if(t===36){ // Mic
+    const av=el('div','bigv','av'+i);av.textContent='0';card.appendChild(av);
+    const bar=el('div','bar');const fl=el('div','fill','af'+i);bar.appendChild(fl);card.appendChild(bar);
+    const s=el('div','stxt');s.textContent='مستوى الصوت';card.appendChild(s);
+  }
+  return card;
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+//  UPDATE GRID (polls only)
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+function updateGrid(d){
+  if(!d.comps) return;
+  d.comps.forEach((c,i)=>{ if(![15,16,32].includes(c.type)) updateCard(c,i); });
+  by('sTime').textContent = now2();
+}
+
+function updateCard(c,i){
+  const t=c.type, col=CX[c.col||0];
+  if(t===0){
+    const b=by('b'+i),s=by('s'+i),pw=by('pw'+i);if(!b)return;
+    if(c.on){const pv=c.pwm??255;b.className='bulb on';b.style.boxShadow=`0 0 14px ${col},0 0 28px ${col}55`;b.style.opacity=(0.3+0.7*pv/255).toFixed(2);if(s)s.textContent=pv<255&&pv>0?Math.round(pv/255*100)+'%':'تشغيل';by('card'+i)?.classList.add('active');}
+    else{b.className='bulb';b.style.boxShadow='none';b.style.opacity='';if(s)s.textContent='إطفاء';by('card'+i)?.classList.remove('active');}
+    if(pw&&c.pwm!=null)pw.value=c.pwm;
+  }
+  else if(t===2){const b=by('b'+i),s=by('s'+i);if(!b)return;if(c.on){b.className='relay-body on';if(s)s.textContent='نشط';by('card'+i)?.classList.add('active');}else{b.className='relay-body';if(s)s.textContent='غير نشط';by('card'+i)?.classList.remove('active');}}
+  else if(t===19){const b=by('b'+i),s=by('s'+i);if(!b)return;if(c.on){b.className='relay-body on';if(s)s.textContent='🔔 يعمل';by('card'+i)?.classList.add('active');}else{b.className='relay-body';if(s)s.textContent='صامت';by('card'+i)?.classList.remove('active');}}
+  else if(t===3||t===20){const sv=by('sv'+i),sl=by('sl'+i);if(sv&&c.angle!=null){sv.innerHTML=c.angle+'°';if(sl)sl.value=c.angle;}}
+  else if(t===4||t===5||t===39){const w=by('dw'+i);if(c.present===false){if(w)w.style.display='block';return;}if(w)w.style.display='none';if((c.opts||3)&1){const tv=by('tv'+i);if(tv&&c.temp!=null)tv.textContent=(+c.temp).toFixed(1);}if((c.opts||3)&2){const hv=by('hv'+i);if(hv&&c.hum!=null)hv.textContent=(+c.hum).toFixed(1);}}
+  else if(t===38){const tv=by('tv'+i);if(tv&&c.temp!=null)tv.textContent=(+c.temp).toFixed(1);}
+  else if([6,12,13,17,18].includes(t)){const r2=by('r'+i),s=by('s'+i);if(!r2)return;const onL={6:'🚶 حركة',12:'🔊 صوت',13:'مكتشف',17:'🔥 خطر',18:'مغلق'},offL={6:'لا حركة',12:'هادئ',13:'لا عائق',17:'آمن',18:'مفتوح'};if(c.motion){r2.classList.add('on');if(s)s.textContent=onL[t]||'نشط';by('card'+i)?.classList.add('active');}else{r2.classList.remove('on');if(s)s.textContent=offL[t]||'--';by('card'+i)?.classList.remove('active');}}
+  else if(t===7||t===40){const dv=by('dv'+i),fl=by('df'+i);if(dv&&c.dist!=null){const d_=+c.dist,mx=c.hc_max||(t===40?200:400);if(d_<=0){dv.textContent='خارج';dv.className='bigv danger';}else{dv.textContent=d_.toFixed(1);dv.className='bigv';if(fl)fl.style.width=Math.min(100,d_/mx*100)+'%';}}}
+  else if(t===41){const ck=by('rc'+i);if(ck&&c.h!=null){const p=n=>(n<10?'0':'')+n;ck.textContent=p(c.h)+':'+p(c.m)+':'+p(c.s);}const dt=by('rd'+i);if(dt&&c.day!=null)dt.textContent=`${c.day}/${c.mon}/${c.yr}`;}
+  else if((t>=8&&t<=14)||(t>=21&&t<=31)){const dig=(c.pin!==34);if(dig){const r3=by('r'+i),s=by('s'+i);if(!r3)return;if(c.motion){r3.classList.add('on');if(s)s.textContent='🚨';by('card'+i)?.classList.add('active');}else{r3.classList.remove('on');if(s)s.textContent='طبيعي';by('card'+i)?.classList.remove('active');}}else{const av=by('av'+i),fl=by('af'+i);if(av&&c.val!=null){av.textContent=c.val;if(fl){const p=c.val/1023*100;fl.style.width=p+'%';fl.style.background=p>70?'var(--r)':p>40?'var(--w)':'var(--g)';}}}
+  }
+  else if(t===34){const sw=by('sw'+i);if(sw&&c.r!==undefined)sw.style.background=`rgb(${c.r},${c.g},${c.b})`;}
+  else if(t===36){const av=by('av'+i),fl=by('af'+i);if(av&&c.val!=null){av.textContent=c.val;if(fl){const p=c.val/1023*100;fl.style.width=p+'%';fl.style.background=p>70?'var(--r)':'var(--g)';}}}
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+//  ACTIONS
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+async function togComp(c,i){
+  const t=c.type, n=c.n||1;
+  let cmd='';
+  if(t===0)  cmd=`led${n} ${c.on?'off':'on'}`;
+  else if(t===2)  cmd=`relay${n} ${c.on?'off':'on'}`;
+  else if(t===19) cmd=`buzzer${n} ${c.on?'off':'on'}`;
+  if(!cmd) return;
+  setStatus('جارٍ التنفيذ...','');
+  // Optimistic update
+  if(data?.comps?.[i]) data.comps[i].on = !c.on;
+  updateCard(data?.comps?.[i]||c, i);
+  try{ await sendCmd(cmd); setStatus('تم ✓','ok'); haptic('medium'); }
+  catch(e){ setStatus('فشل الأمر','err'); hapticWarn(); }
+}
+
+async function doLock(v){
+  hapticSel();
+  try{ await sendCmd(v?'lock on':'lock off'); setStatus(v?'تم التثبيت ✓':'تم الإلغاء ✓','ok'); }
+  catch(e){ setStatus('فشل التثبيت','err'); if(data)updateCard(data,0); }
+}
+
+async function doCmd(type){
+  if(type==='go-tg'){ if(!confirm('التبديل لوضع تيليجرام؟')) return; await sendCmd('offline'); }
+  if(type==='go-bt'){ if(!confirm('التبديل لوضع البلوتوث؟')) return; await sendCmd('bt on'); }
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+//  START
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+setTimeout(init, 350);
+</script>
+</body>
+</html>
